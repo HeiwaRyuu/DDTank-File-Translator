@@ -1,13 +1,9 @@
 import re
-import numpy as np
-import pandas as pd
-from googletrans import Translator
-
-import re
 import time
 import numpy as np
 import pandas as pd
-from googletrans import Translator
+import translators as ts
+from googletrans import Translator, LANGUAGES
 
 translator = Translator()
 
@@ -36,14 +32,22 @@ def permeate_values_on_df(columns, raw_data):
     df_new[columns] = pd.DataFrame(df_raw['raw_data'].to_list())
     return df_new
 
+# def translate(text):
+
 # Function to translate text with delay to avoid rate limits
 def translate_text_with_delay(text, delay=1):
-    translated_text = translator.translate(text, src='auto', dest='en').text
-    time.sleep(delay)  # Wait for a specified delay (in seconds) between requests
-    return translated_text
+    raw_unstranslated_text = re.findall(r'\'(.*?)\'', text)
+    translated_text = ''
+    if len(raw_unstranslated_text[0]):
+        translated_text_en = ts.translate_text(query_text=raw_unstranslated_text[0], translator = 'bing', from_language = 'auto', to_language = 'en')
+        translated_text = ts.translate_text(query_text=translated_text_en, translator = 'bing', from_language = 'en', to_language = 'pt')
+        time.sleep(delay)  # Wait for a specified delay (in seconds) between requests
+    original_format_translated_text = f"N'{translated_text}'"
+    return original_format_translated_text
 
 def translate_df_columns(df):
     columns_to_translate = ['Name', 'Description']
+
     for column in columns_to_translate:
         df[column] = df[column].apply(translate_text_with_delay)
     return df
@@ -54,8 +58,9 @@ def main():
     raw_data = [item for item in raw_data if item!='\n']
     columns = fetch_column_names(raw_data[0])
     df = permeate_values_on_df(columns, raw_data)
-    df_translated = translate_df_columns(df.iloc[0:20])
-    print(df_translated)
+    df_translated = translate_df_columns(df.iloc[0:3])
+    print(df.iloc[0:3])
+    print(df_translated.iloc[0:3])
 
 if __name__ == "__main__":
     main()
