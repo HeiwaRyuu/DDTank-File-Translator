@@ -49,12 +49,11 @@ def translate(raw_untranslated_text, delay=STANDARD_SLEEP_TIME):
     translated_text = ''
     if len(raw_untranslated_text[0])>0:
         translated_text_en = ts.translate_text(query_text=raw_untranslated_text[0], translator = 'bing', from_language = 'auto', to_language = 'en')
-        time.sleep(delay)  # Wait for a specified delay (in seconds) between requests
+        # time.sleep(delay)  # Wait for a specified delay (in seconds) between requests
         translated_text = ts.translate_text(query_text=translated_text_en, translator = 'bing', from_language = 'en', to_language = 'pt')
-        time.sleep(delay)  # Wait for a specified delay (in seconds) between requests
+        # time.sleep(delay)  # Wait for a specified delay (in seconds) between requests
         translated_text = ts.translate_text(query_text=translated_text_en, translator = 'bing', from_language = 'auto', to_language = 'pt')
-        chars_to_remove = '\'\"'
-        translated_text = translated_text.maketrans('', '', chars_to_remove)
+        translated_text = translated_text.replace('\'', '').replace('\"', '')
     return f"N'{translated_text}'"
 
 # Function to translate text with delay to avoid rate limits
@@ -111,7 +110,6 @@ def translate_df_columns(df):
     for column in columns_to_translate:
         print(f"Translating column: {column}")
         df[column] = parallel_apply(df[column], translate_text_with_delay)
-        # df[column] = df[column].apply(translate_text_with_delay)
     return df
 
 def main():
