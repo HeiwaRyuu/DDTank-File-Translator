@@ -7,6 +7,7 @@ import translators as ts
 from googletrans import Translator, LANGUAGES
 from concurrent.futures import ProcessPoolExecutor
 
+MAX_ATTEMPTS = 5
 STANDARD_SLEEP_TIME = 1
 STANDARD_NUMBER_OF_PARTITIONS = 20
 translator = Translator()
@@ -15,9 +16,9 @@ manually_translate = []
 def fetch_schema_and_table_names(row):
     row = row[0:row.find('(')]
     row_lst = row.split('.')
-    db_name = row_lst[0][row_lst[0].find('[')+1:row_lst[0].find(']')]
-    schema_name = row_lst[1][row_lst[1].find('[')+1:row_lst[1].find(']')]
-    return db_name, schema_name
+    schema_name = row_lst[0][row_lst[0].find('[')+1:row_lst[0].find(']')]
+    table_name = row_lst[1][row_lst[1].find('[')+1:row_lst[1].find(']')]
+    return schema_name, table_name
 
 def fetch_column_names(row):
     ## FETCHING DATAFRAME COLUMNS
@@ -49,9 +50,7 @@ def translate(raw_untranslated_text, delay=STANDARD_SLEEP_TIME):
     translated_text = ''
     if len(raw_untranslated_text[0])>0:
         translated_text_en = ts.translate_text(query_text=raw_untranslated_text[0], translator = 'bing', from_language = 'auto', to_language = 'en')
-        # time.sleep(delay)  # Wait for a specified delay (in seconds) between requests
         translated_text = ts.translate_text(query_text=translated_text_en, translator = 'bing', from_language = 'en', to_language = 'pt')
-        # time.sleep(delay)  # Wait for a specified delay (in seconds) between requests
         translated_text = ts.translate_text(query_text=translated_text_en, translator = 'bing', from_language = 'auto', to_language = 'pt')
         translated_text = translated_text.replace('\'', '').replace('\"', '')
     return f"N'{translated_text}'"
@@ -63,7 +62,7 @@ def translate_text_with_delay(text):
     except Exception as e:
         print(f"Exception when parsing regex on untranslated text {text}: Exception: {e}")
         raw_untranslated_text = ['']
-    max_attempts = 5
+    max_attempts = MAX_ATTEMPTS
     attempts = 0
     while(attempts <= max_attempts):
         try:
