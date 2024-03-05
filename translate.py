@@ -4,13 +4,12 @@ import numpy as np
 import pandas as pd
 import datetime as dt
 import translators as ts
-from googletrans import Translator, LANGUAGES
+from langdetect import detect
 from concurrent.futures import ProcessPoolExecutor
 
 MAX_ATTEMPTS = 5
 STANDARD_SLEEP_TIME = 1
 STANDARD_NUMBER_OF_PARTITIONS = 20
-translator = Translator()
 manually_translate = []
 
 def fetch_schema_and_table_names(row):
@@ -63,7 +62,15 @@ def translate_text_with_delay(text):
         ## THIS ONLY HAPPENS IF NONE IS PRESENT ON DATAFRAME COLUMN, OTHERWISE IT RETURNS THE REGULAR TEXT
         print(f"Exception when parsing regex on untranslated text {text}: Exception: {e}")
         return "ADD_GO_COMMAND" ## ADDING A TAG TO IDENTIFY WHICH ROW TO REPLACE WITH "GO" COMMAND
-
+    
+    ## IF TEXT IS ALREADY IN PORTUGUESE, IGNORE THE TRANSLATION EVENT
+    try:
+        if len(raw_untranslated_text[0])>0:
+            if(detect(raw_untranslated_text[0])=="pt"):
+                return text
+    except Exception as e:
+        print(f"EXCESSÃO === {e}")
+    
     max_attempts = MAX_ATTEMPTS
     attempts = 0
     while(attempts <= max_attempts):
