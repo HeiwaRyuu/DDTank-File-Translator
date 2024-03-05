@@ -43,7 +43,7 @@ def permeate_values_on_df(columns, raw_data):
     df_raw['raw_data'] = df_raw['raw_data'].apply(fetch_values)
     df_new = pd.DataFrame(columns=columns)
     df_new[columns] = pd.DataFrame(df_raw['raw_data'].to_list())
-    df_new = df_new.dropna() ## REMOVING ANY COLUMN THAT HAS EMPTY (None) VALUES
+    # df_new = df_new.dropna() ## REMOVING ANY COLUMN THAT HAS EMPTY (None) VALUES
     return df_new
 
 def translate(raw_untranslated_text, delay=STANDARD_SLEEP_TIME):
@@ -60,8 +60,10 @@ def translate_text_with_delay(text):
     try:
         raw_untranslated_text = re.findall(r'\'(.*?)\'', text)
     except Exception as e:
+        ## THIS ONLY HAPPENS IF NONE IS PRESENT ON DATAFRAME COLUMN, OTHERWISE IT RETURNS THE REGULAR TEXT
         print(f"Exception when parsing regex on untranslated text {text}: Exception: {e}")
-        raw_untranslated_text = ['']
+        return "ADD_GO_COMMAND" ## ADDING A TAG TO IDENTIFY WHICH ROW TO REPLACE WITH "GO" COMMAND
+
     max_attempts = MAX_ATTEMPTS
     attempts = 0
     while(attempts <= max_attempts):
@@ -81,6 +83,8 @@ def translate_text_with_delay(text):
 
 # RECONSTRUCTING SQL TRANSLATED FILE
 def convert_to_sql_string_format(row, columns, schema_name, table_name):
+    if "ADD_GO_COMMAND" in row["Name"]:
+        return "GO" ## REPLACING LINE WITH "GO" COMMAND IF "ADD_GO_COMMAND" TAG IS PRESENT ON ROW
     lst_of_values = row.to_list()
     columns_sql_format = ', '.join(f'[{item}]' for item in columns)
     values_sql_format = ', '.join(f'{value}' for value in lst_of_values)
@@ -111,11 +115,13 @@ def translate_df_columns(df):
         df[column] = parallel_apply(df[column], translate_text_with_delay)
     return df
 
+
 def main():
     now = dt.datetime.now()
     print("Iniciando script...")
     print("Lendo arquivo a ser traduzido...")
-    with open('teste 500 linhas.sql', 'r', encoding='utf-8') as f:
+    file_name = 'teste 2_3.sql'
+    with open(file_name, 'r', encoding='utf-8') as f:
         raw_data = f.readlines()
     raw_data = [item for item in raw_data if item!='\n']
     print("Coletando nome das colunas...")
@@ -124,16 +130,16 @@ def main():
     schema_name, table_name = fetch_schema_and_table_names(raw_data[0])
     df = permeate_values_on_df(columns, raw_data)
     df_translated = translate_df_columns(df)
-    df_translated.to_excel("translated_df_excel.xlsx")
+    df_translated.to_excel(f"translated_df_excel-{file_name}.xlsx")
 
     df_sql_formatted_translated = pd.DataFrame(columns=["Translated_SQL"])
     df_sql_formatted_translated["Translated_SQL"] = df_translated.apply(convert_to_sql_string_format, axis=1, columns=columns, schema_name=schema_name, table_name=table_name)
-    df_sql_formatted_translated.to_csv("translated_data.sql", sep="\n", index=False, header=False)
+    df_sql_formatted_translated.to_csv(f"translated_data-{file_name}.sql", sep="\n", index=False, header=False)
 
     if not manually_translate:
         manually_translate.append("NO FAILED TRANSLATIONS...")
     df_translation_failed = pd.DataFrame(manually_translate, columns=["Translation_Failed"])
-    df_translation_failed.to_csv("failed_translations.txt", sep="\n")
+    df_translation_failed.to_csv(f"failed_translations-{file_name}.txt", sep="\n")
     end = dt.datetime.now()
     print(f"O Scrpit levou {(end-now)} para traduzir {len(df_translated.index)} linhas")
 
