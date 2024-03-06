@@ -61,7 +61,7 @@ def fetch_column_names(row):
     return columns
 
 def fetch_values(row):
-    values = row[row.find("VALUES")+8:-2]
+    values = row[row.find("VALUES")+8:-1] ## FETCHES UP TO LAST CHARACTER
     pattern = pattern = r", (?=(?:[^']*'[^']*')*[^']*$)"
     values = re.split(pattern, values)
     return values
@@ -161,7 +161,7 @@ def main():
     now = dt.datetime.now()
     print("Iniciando script...")
     print("Lendo arquivo a ser traduzido...")
-    file_name = 'teste.sql'
+    file_name = 'teste 2_3.sql'
     with open(file_name, 'r', encoding='utf-8') as f:
         raw_data = f.readlines()
     # raw_data = [item for item in raw_data if item!='\n']
@@ -171,7 +171,7 @@ def main():
     print("Coletando nome do schema e da tabela de dados...")
     schema_name, table_name = fetch_schema_and_table_names(raw_data[0])
     df = permeate_values_on_df(columns, raw_data)
-    df.to_excel("CHECK.xlsx")
+    # df.to_excel("CHECK.xlsx")
     df_translated = translate_df_columns(df)
     
 
