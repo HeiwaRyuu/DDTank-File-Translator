@@ -6,11 +6,42 @@ import datetime as dt
 import translators as ts
 from langdetect import detect
 from concurrent.futures import ProcessPoolExecutor
+import warnings
+warnings.filterwarnings(action='ignore', category=FutureWarning)
 
-MAX_ATTEMPTS = 5
+MAX_ATTEMPTS = 1
 STANDARD_SLEEP_TIME = 1
 STANDARD_NUMBER_OF_PARTITIONS = 20
 manually_translate = []
+
+def restructure_sql_into_datarframe(raw_data):
+    transformed_lines = []
+    current_statement = ""
+    for line in raw_data:
+        # Check if the line starts with "GO", treat it as a separate command
+        if line.strip().startswith("GO"):
+            # Append the current statement before adding "GO" if there's an ongoing statement
+            if current_statement:
+                transformed_lines.append(current_statement.rstrip('\n'))
+                current_statement = ""
+            transformed_lines.append("GO")  # Append "GO" as a separate line
+        elif line.strip().startswith("INSERT"):
+            # Start of a new statement
+            if current_statement:  # If there's an ongoing statement, append it first
+                transformed_lines.append(current_statement.rstrip('\n'))
+            current_statement = line
+        else:
+            # Continuation of the current statement
+            if current_statement[-1] != "\n":
+                current_statement += "\n" + line.strip()
+            else:
+                current_statement += line.strip()
+
+    # MAKING SURE LAST STATEMENT ID ADDED
+    if current_statement:
+        transformed_lines.append(current_statement.rstrip('\n'))
+
+    return transformed_lines
 
 def fetch_schema_and_table_names(row):
     row = row[0:row.find('(')]
@@ -55,9 +86,9 @@ def translate(raw_untranslated_text, delay=STANDARD_SLEEP_TIME):
     return f"N'{translated_text}'"
 
 # Function to translate text with delay to avoid rate limits
-def translate_text_with_delay(text):
+def translate_text_with_delay(text, **kwargs):
     try:
-        raw_untranslated_text = re.findall(r'\'(.*?)\'', text)
+        raw_untranslated_text = re.findall(r'\'(.*?)\'', text, re.DOTALL)
     except Exception as e:
         ## THIS ONLY HAPPENS IF NONE IS PRESENT ON DATAFRAME COLUMN, OTHERWISE IT RETURNS THE REGULAR TEXT
         print(f"Exception when parsing regex on untranslated text {text}: Exception: {e}")
@@ -69,11 +100,11 @@ def translate_text_with_delay(text):
             if(detect(raw_untranslated_text[0])=="pt"):
                 return text
     except Exception as e:
+        print(f"TEXT === {text}")
         print(f"EXCESSÃO === {e}")
     
-    max_attempts = MAX_ATTEMPTS
     attempts = 0
-    while(attempts <= max_attempts):
+    while(attempts < MAX_ATTEMPTS):
         try:
             print(f"Translating text: {raw_untranslated_text}...")
             original_format_translated_text = translate(raw_untranslated_text)
@@ -81,8 +112,8 @@ def translate_text_with_delay(text):
         except Exception as e:
             attempts += 1
             print(f"Exception while translating code: Exception: {e}... Trying again... Attempt number {attempts}")
-            time.sleep(STANDARD_SLEEP_TIME*20)
-    if attempts > max_attempts:
+            # time.sleep(STANDARD_SLEEP_TIME*20)
+    if attempts >= MAX_ATTEMPTS:
         print(f"Max attempts on the row with the following text: {text}")
         manually_translate.append(text)
     
@@ -99,17 +130,20 @@ def convert_to_sql_string_format(row, columns, schema_name, table_name):
     return str_blueprint
 
 # Function to apply 'func' to a DataFrame or Series 'data'
-def apply_func(data, func):
-    return data.apply(func)
+def apply_func(data, func, kwargs):
+    return data.apply(func, **kwargs)
 
 # Function to parallelize pandas apply
-def parallel_apply(data, func, num_partitions=STANDARD_NUMBER_OF_PARTITIONS):
+def parallel_apply(data, func, num_partitions=STANDARD_NUMBER_OF_PARTITIONS, **kwargs):
     # Split DataFrame into chunks
     data_split = np.array_split(data, num_partitions)
     
     with ProcessPoolExecutor() as executor:
         # Apply the function to each partition in parallel
-        results = list(executor.map(apply_func, data_split, [func]*num_partitions))
+        if kwargs:
+            results = list(executor.map(apply_func, data_split, [func]*num_partitions, [kwargs]*num_partitions))
+        else:
+            results = list(executor.map(apply_func, data_split, [func]*num_partitions, [{"fake_kwarg":True}]*num_partitions))
     
     # Concatenate the results back into a single DataFrame or Series
     return pd.concat(results)
@@ -127,26 +161,32 @@ def main():
     now = dt.datetime.now()
     print("Iniciando script...")
     print("Lendo arquivo a ser traduzido...")
-    file_name = 'teste 2_3.sql'
+    file_name = 'teste.sql'
     with open(file_name, 'r', encoding='utf-8') as f:
         raw_data = f.readlines()
-    raw_data = [item for item in raw_data if item!='\n']
+    # raw_data = [item for item in raw_data if item!='\n']
+    raw_data = restructure_sql_into_datarframe(raw_data)
     print("Coletando nome das colunas...")
     columns = fetch_column_names(raw_data[0])
     print("Coletando nome do schema e da tabela de dados...")
     schema_name, table_name = fetch_schema_and_table_names(raw_data[0])
     df = permeate_values_on_df(columns, raw_data)
+    df.to_excel("CHECK.xlsx")
     df_translated = translate_df_columns(df)
-    df_translated.to_excel(f"translated_df_excel-{file_name}.xlsx")
+    
 
     df_sql_formatted_translated = pd.DataFrame(columns=["Translated_SQL"])
-    df_sql_formatted_translated["Translated_SQL"] = df_translated.apply(convert_to_sql_string_format, axis=1, columns=columns, schema_name=schema_name, table_name=table_name)
-    df_sql_formatted_translated.to_csv(f"translated_data-{file_name}.sql", sep="\n", index=False, header=False)
+    kwargs = {"axis":1, "columns":columns, "schema_name":schema_name, "table_name":table_name} ## PASSING KWARGS SO WE CAN PARRALELIZE EVERYTHING
+    df_sql_formatted_translated["Translated_SQL"] = parallel_apply(df_translated, convert_to_sql_string_format, **kwargs)
+    with open(f"translated_data-{file_name.split('.')[0]}.sql", "w+", encoding="utf-8") as f:
+        f.write("\n".join(df_sql_formatted_translated["Translated_SQL"]))
+    df_translated = df_translated.dropna()
+    df_translated.to_excel(f"translated_df_excel-{file_name.split('.')[0]}.xlsx")
 
     if not manually_translate:
         manually_translate.append("NO FAILED TRANSLATIONS...")
     df_translation_failed = pd.DataFrame(manually_translate, columns=["Translation_Failed"])
-    df_translation_failed.to_csv(f"failed_translations-{file_name}.txt", sep="\n")
+    df_translation_failed.to_csv(f"failed_translations-{file_name.split('.')[0]}.txt", sep="\n")
     end = dt.datetime.now()
     print(f"O Scrpit levou {(end-now)} para traduzir {len(df_translated.index)} linhas")
 
